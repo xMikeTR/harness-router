@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Harness Router</title>
+<style>
+body{font:15px/1.5 system-ui;max-width:800px;margin:0 auto;padding:16px;display:flex;flex-direction:column;height:100vh;box-sizing:border-box}
+#log{flex:1;overflow:auto}.m{white-space:pre-wrap;margin:8px 0;padding:8px 12px;border-radius:8px}
+.you{background:#e8eefc}.text{background:#f4f4f4}.meta{color:#666;font-size:13px;padding:2px 12px;margin:2px 0}
+.stopped,.error{background:#fdecea}.denied{background:#fff6e0}
+form{display:flex;gap:8px}textarea{flex:1;font:inherit;padding:8px}button{font:inherit;padding:6px 14px}
+</style></head><body>
+<div id="log"></div>
+<form id="f"><textarea id="t" rows="2" placeholder="What do you need? (/route opus ... to override)" autofocus></textarea><button>Send</button><button type="button" id="n">New</button></form>
+<script>
+const log=document.getElementById('log'),t=document.getElementById('t');let conv=null;
+function add(c,x){const d=document.createElement('div');d.className=c;d.textContent=x;log.append(d);log.scrollTop=log.scrollHeight;return d}
+async function send(message,approve){
+  add('m you',message);
+  const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message,conversationId:conv,approve})});
+  if(!r.ok){add('m error','Request failed: '+r.status);return}
+  const rd=r.body.pipeThrough(new TextDecoderStream()).getReader();let buf='';
+  for(;;){const{value,done}=await rd.read();if(done)break;buf+=value;const ls=buf.split('\n');buf=ls.pop();ls.filter(Boolean).forEach(l=>show(JSON.parse(l)))}
+}
+function show(e){
+  if(e.type==='route'){conv=e.conversation;add('meta',`${e.harness} · ${e.model} · ${e.reason}`+(e.confidence!=null?` (${e.confidence.toFixed(2)})`:''))}
+  else if(e.type==='text')add('m text',e.text);
+  else if(e.type==='tool')add('meta','tool: '+e.tool);
+  else if(e.type==='denied'){const d=add('m denied',`Wants to use ${e.tool}. `);const b=document.createElement('button');b.textContent='Approve and continue';
+    b.onclick=()=>{b.disabled=true;send(`Approved: you may use ${e.tool}. Continue.`,[e.tool])};d.append(b)}
+  else if(e.type==='stopped')add('m stopped',e.text);
+  else if(e.type==='error')add('m error',e.text||'error');
+  else if(e.type==='done'&&e.cost!=null)add('meta','$'+e.cost.toFixed(4));
+}
+document.getElementById('f').onsubmit=e=>{e.preventDefault();const m=t.value.trim();if(!m)return;t.value='';send(m).catch(x=>add('m error',String(x)))};
+t.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('f').requestSubmit()}};
+document.getElementById('n').onclick=()=>{conv=null;log.textContent=''};
+</script></body></html>
